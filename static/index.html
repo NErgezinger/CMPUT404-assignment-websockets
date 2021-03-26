@@ -29,6 +29,7 @@
 
     <script>
       // Fix me
+
 var canvas = document.getElementById('c');
 var host = window.location.host;
 var context = canvas.getContext("2d");
@@ -128,8 +129,9 @@ function addEntity(entity, data) {
     world[entity] = data;
     new_entities[entity] = data;
     drawNextFrame(); // (but should we?)
-    var json = {entity, data};
-    socket.send(JSON.stringify(json));
+    var msg = {};
+    msg[entity] = data;
+    socket.send(JSON.stringify(msg));
 }
 var counter = 0;
 var localID = Math.floor((Math.random()*10000000))
@@ -277,9 +279,11 @@ function wsSetup() {
                 clearFrame();
             }
             else {
-                world[msg_j.entity] = msg_j.data;
-                new_entities[msg_j.entity] = msg_j.data;
-                drawNextFrame();
+                if (Object.values(msg_j)[0].client != localID) {
+                    Object.assign(world, msg_j);
+                    Object.assign(new_entities, msg_j);
+                    drawNextFrame();
+                }
             }
         } catch (e) {
             alert("socket on message: " + e);

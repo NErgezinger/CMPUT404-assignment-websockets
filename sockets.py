@@ -28,6 +28,11 @@ app = Flask(__name__)
 sockets = Sockets(app)
 app.debug = True
 
+def extract_obj(msg):
+    entity = next(iter(msg.keys()))
+    data = next(iter(msg.values()))
+    return entity, data
+
 class World:
     def __init__(self):
         self.listeners = list()
@@ -37,8 +42,8 @@ class World:
     def add_set_listener(self, listener):
         self.listeners.append( listener )
         for (entity, data) in self.space.items():
-            msg = {'entity':entity, 'data':data}
-            print(msg)
+            msg = {}
+            msg[entity] = data
             listener.put(json.dumps(msg))
 
     def remove_set_listener(self, listener):
@@ -58,9 +63,9 @@ class World:
         '''update the set listeners'''
         data = self.get(entity)
         for listener in self.listeners:
-            if listener.id != int(data['client']):
-                msg = {'entity':entity, 'data':data}
-                listener.put(json.dumps(msg))
+            msg = {}
+            msg[entity] = data
+            listener.put(json.dumps(msg))
 
     def clear(self):
         for listener in self.listeners:
@@ -74,7 +79,8 @@ class World:
         return self.space
 
 class Client:
-    def __init__(self, id):
+    def __init__(self, id=0):
+        self.closed = False
         self.id = id
         self.queue = queue.Queue()
 
@@ -101,20 +107,27 @@ def read_ws(ws, client):
         print("WS RECV: %s" % msg)
         if (msg is not None):
             msg_j = json.loads(msg)
-            myWorld.set(msg_j['entity'], msg_j['data'])
+            # https://stackoverflow.com/a/43629415
+            entity, data = extract_obj(msg_j)
+            myWorld.set(entity, data) 
         else:
             print("WS Closing")
+            client.put(StopIteration) # Force .get() to stop waiting on queue http://www.gevent.org/api/gevent.queue.html
             break
 
 @sockets.route('/subscribe')
 def subscribe_socket(ws):
     '''Fufill the websocket URL of /subscribe, every update notify the
        websocket and read updates from the websocket '''
-    id = int(request.args['id'])
-    print("Subscribing with id: " + str(id))
-    client = Client(id)
+    if 'id' in request.args.keys():
+        id = int(request.args['id'])
+        print("Subscribing with id: " + str(id))
+        client = Client(id)
+    else:
+        client = Client()
     myWorld.add_set_listener(client)
     g = gevent.spawn( read_ws, ws, client )    
+
     try:
         while True:
             msg = client.get()
@@ -167,5 +180,5 @@ if __name__ == "__main__":
         and run
         gunicorn -k flask_sockets.worker sockets:app
     '''
-    monkey.patch_all() # https://stackoverflow.com/a/14552642
+    # monkey.patch_all() # https://stackoverflow.com/a/14552642
     app.run()
